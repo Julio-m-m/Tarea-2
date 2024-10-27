@@ -1,1 +1,218 @@
+---
+title: "Tarea 2"
+author: "Julio Moreno"
+output: html_document
+---
+
+#1)
+```{r}
+# Cargar librerias
+library(haven)
+library(tidyverse)
+library(plm)
+library(stargazer)
+
+# Cargar datos
+exports_finance <- read_dta("data/exports-finance.dta")
+
+# Añadir columna dlogl que corresponde a la tasa de crecimiento del empleo
+cbind(exports_finance, NA)
+
+colnames(exports_finance)[which(names(exports_finance) == "NA")] <- "dlogl"
+for(
+  t in unique(exports_finance$year)[-length(unique(exports_finance$year))]
+    ){
+  for(
+    i in unique(exports_finance$padron[exports_finance$year == t | exports_finance$year == t + 1])
+     ){
+    exports_finance$dlogl[exports_finance$padron == i & exports_finance$year == t] <- 
+      ifelse(
+        length(
+          exports_finance$logl[exports_finance$padron == i & exports_finance$year == t+1] - exports_finance$logl[exports_finance$padron == i & exports_finance$year == t]
+          ) != 0,
+        exports_finance$logl[exports_finance$padron == i & exports_finance$year == t+1] - exports_finance$logl[exports_finance$padron == i & exports_finance$year == t],
+        NA
+      )}}
+rm(i)
+rm(t)
+
+# Eliminar filas con valores faltantes de dlogl
+exports_finance_1 <- exports_finance[!is.na(exports_finance$dlogl),]
+
+# Crear dummy de exportador
+exports_finance_1 <- 
+  mutate(exports_finance_1,
+       Exp = ifelse(exports > 0,
+                    1,
+                    0))
+
+# Renombrar columna firmas extranjeras
+colnames(exports_finance_1)[which(names(exports_finance_1) == "For")] <- "Foreign"
+
+# Reordenar columnas
+exports_finance_1 <- exports_finance_1[,c(3,1,2,4:15)]
+
+# Convertir los datos a panel
+panel_exports_finance <- pdata.frame(exports_finance_1,
+                                     c("padron", "year")
+                                     )
+
+# Estimar la regresion
+regresion1 <- plm(dlogl ~ DF*NF + DF*Exp - Exp - NF + Foreign + logtfp + logage,
+             data = panel_exports_finance,
+             model = "within",
+             effect = "twoways"
+             )
+ 
+# Mostrar el regresion
+stargazer(regresion1, type = "text")
+```
+
+
+#2)
+```{r}
+# Creacion de variables
+P2_exports_finance <- mutate(exports_finance,
+                          local_sales = ifelse(sales - exports >= 0,
+                                               sales - exports,
+                                               NA
+                                               ),
+                          log_sales   = ifelse(!is.na(local_sales) & local_sales > 0, 
+                                             log(local_sales),
+                                             NA),
+                          log_exports = ifelse(!is.na(exports) & exports > 0, 
+                                             log(exports),
+                                             NA),
+                          Foreign = For,
+                          dlog_exports = NA,
+                          dlog_sales = NA
+                          )
+
+# Configuracion de datos de panel
+panel_exports_finance_2 <- pdata.frame(P2_exports_finance,
+                                     c("padron", "year")
+                                      )
+# Regresión de ventas locales
+reg2 <- plm(log_sales ~ DF*NF - NF - DF + Foreign + logtfp + logage,
+             data = panel_exports_finance_2[!is.na(panel_exports_finance_2$log_sales),],
+             model = "within",
+             effect = "twoways"
+              )
+
+# Regresión de exportaciones
+reg2b <- plm(log_exports ~ DF*NF - NF - DF + Foreign + logtfp + logage,
+             data = panel_exports_finance_2[panel_exports_finance$Exp == 1,],
+             model = "within",
+             effect = "twoways"
+             )
+
+# Calculo de tasas de crecimiento
+# Para ventas locales
+for(
+  t in unique(P2_exports_finance$year)[-length(unique(P2_exports_finance$year))]
+    ){
+  for(
+    i in unique(P2_exports_finance$padron[P2_exports_finance$year == t | P2_exports_finance$year == t + 1])
+     ){
+    P2_exports_finance$dlog_sales[P2_exports_finance$padron == i & P2_exports_finance$year == t] <- 
+      ifelse(
+        length(
+          P2_exports_finance$log_sales[P2_exports_finance$padron == i & P2_exports_finance$year == t+1] - P2_exports_finance$log_sales[P2_exports_finance$padron == i & P2_exports_finance$year == t]
+          ) != 0,
+        P2_exports_finance$log_sales[P2_exports_finance$padron == i & P2_exports_finance$year == t+1] - P2_exports_finance$log_sales[P2_exports_finance$padron == i & P2_exports_finance$year == t],
+        NA
+            )}}
+rm(i)
+rm(t)
+
+# Para exportaciones
+for(
+  t in unique(P2_exports_finance$year)[-length(unique(P2_exports_finance$year))]
+    ){
+  for(
+    i in unique(P2_exports_finance$padron[P2_exports_finance$year == t | P2_exports_finance$year == t + 1])
+     ){
+    P2_exports_finance$dlog_exports[P2_exports_finance$padron == i & P2_exports_finance$year == t] <- 
+      ifelse(
+        length(
+          P2_exports_finance$log_exports[P2_exports_finance$padron == i & P2_exports_finance$year == t+1] - P2_exports_finance$log_exports[P2_exports_finance$padron == i & P2_exports_finance$year == t]
+          ) != 0,
+        P2_exports_finance$log_exports[P2_exports_finance$padron == i & P2_exports_finance$year == t+1] - P2_exports_finance$log_exports[P2_exports_finance$padron == i & P2_exports_finance$year == t],
+        NA
+            )}}
+rm(i)
+rm(t)
+
+# Regresion para tasa de crecimiento de ventas locales
+reg2c <- plm(dlog_sales ~ DF*NF - NF - DF + Foreign + logtfp + logage,
+             data = panel_exports_finance_2[!is.na(panel_exports_finance_2$dlog_sales),],
+             model = "within",
+             effect = "twoways"
+              )
+
+# Regresion para tasa de crecimiento de exportaciones
+reg2d <- plm(dlog_exports ~ DF*NF - NF - DF + Foreign + logtfp + logage,
+             data = panel_exports_finance_2[panel_exports_finance$Exp == 1,],
+             model = "within",
+             effect = "twoways"
+             )
+
+# Comparación de las tasas de crecimiento
+P2_exports_finance <- mutate(P2_exports_finance,
+                             "|dlogsales| - |dlogexp|" = abs(dlog_sales) - abs(dlog_exports)
+                             )
+
+# Convertir los datos a panel
+panel_exports_finance_2 <- pdata.frame(P2_exports_finance,
+                                     c("padron", "year")
+                                      )
+# Regresión para la Diferencia
+reg2e <- plm(X.dlogsales.....dlogexp. ~ DF*NF - NF - DF + Foreign + logtfp + logage,
+             data = panel_exports_finance_2[!is.na(panel_exports_finance_2$X.dlogsales.....dlogexp.),],
+             model = "within",
+             effect = "twoways"
+             )
+
+# Mostrar el modelo
+stargazer(reg2, reg2b, reg2c, reg2d, reg2e, type = "text")
+```
+
+
+#3)
+```{r}
+# Crear dummy de exportador
+panel_exports_finance_2 <- 
+  mutate(panel_exports_finance_2,
+       Exp = ifelse(exports > 0,
+                    1,
+                    0))
+
+# Datos con solo firmas extranjeras
+panel_exports_finance_3 <- panel_exports_finance_2[panel_exports_finance$Foreign == 1,]
+
+# Impacto sobre las ventas locales firma exportadora extranjera
+reg_sales_exp <- plm(log_sales ~ DF * NF + logtfp + logage,
+                 data =  panel_exports_finance_3[panel_exports_finance_3$Exp == 1,], 
+                 model = "within")
+
+# Impacto sobre las ventas locales firma no exportadora extranjera
+reg_sales_noexp <- plm(log_sales ~ DF * NF + logtfp + logage,
+                 data =  panel_exports_finance_3[panel_exports_finance_3$Exp == 0,], 
+                 model = "within")
+
+# Mostrar resultados
+stargazer(reg_sales_exp, reg_sales_noexp, type = "text")
+```
+
+
+#4)
+```{r}
+# Modelo logit para la probabilidad de exportar
+logit_model <- glm(Exp ~ DF * logl + Foreign + logtfp + logage,
+                   data = panel_exports_finance, family = binomial(link = "logit"))
+
+# Mostrar resultados
+summary(logit_model)
+stargazer(logit_model, type = "text")
+```
 
